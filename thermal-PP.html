@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Thermal Power Plant Simulation</title>
+    <style>
+        body { margin: 0; overflow: hidden; font-family: 'Segoe UI', sans-serif; background: #1a1a1a; color: white; }
+        
+        /* UI Overlay */
+        #dashboard {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            height: 180px;
+            background: rgba(20, 20, 20, 0.95);
+            border-top: 2px solid #444;
+            display: flex;
+            justify-content: space-around;
+            align-items: center;
+            padding: 10px 20px;
+            box-sizing: border-box;
+            z-index: 10;
+        }
+
+        .control-panel {
+            flex: 1;
+            max-width: 300px;
+            padding: 10px;
+            background: #2a2a2a;
+            border-radius: 8px;
+            border: 1px solid #555;
+        }
+
+        .stats-panel {
+            flex: 2;
+            display: flex;
+            gap: 20px;
+            justify-content: center;
+        }
+
+        .stat-box {
+            background: #333;
+            padding: 15px;
+            border-radius: 8px;
+            min-width: 120px;
+            text-align: center;
+            border-left: 4px solid #4fc3f7;
+        }
+
+        .stat-label { display: block; font-size: 0.8rem; color: #aaa; margin-bottom: 5px; }
+        .stat-value { font-size: 1.5rem; font-weight: bold; font-family: monospace; }
+        
+        input[type=range] { width: 100%; margin: 10px 0; cursor: pointer; }
+        button {
+            background: #e67e22; color: white; border: none; padding: 8px 16px; 
+            border-radius: 4px; cursor: pointer; font-weight: bold;
+        }
+        button:hover { background: #d35400; }
+
+        /* Labels in 3D Space */
+        .annotation {
+            position: absolute;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 8px 12px;
+            border-radius: 4px;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            pointer-events: none;
+            font-size: 0.9rem;
+            transform: translate(-50%, -50%);
+            transition: opacity 0.3s;
+        }
+        .step-number {
+            display: inline-block;
+            background: #e67e22;
+            color: white;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            text-align: center;
+            line-height: 20px;
+            font-weight: bold;
+            margin-right: 8px;
+            font-size: 0.8rem;
+        }
+
+        /* Tooltip */
+        #tooltip {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            width: 300px;
+            background: rgba(0, 50, 80, 0.9);
+            padding: 15px;
+            border-radius: 8px;
+            line-height: 1.5;
+            font-size: 0.9rem;
+            pointer-events: none;
+        }
+    </style>
+    <!-- Three.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+</head>
+<body>
+
+    <!-- 3D Labels (Populated by JS) -->
+    <div id="labels-container"></div>
+
+    <!-- Info Box -->
+    <div id="tooltip">
+        <strong>Thermal Power Cycle:</strong><br>
+        1. <strong>Boiler:</strong> Coal burns to heat water.<br>
+        2. <strong>Pipes:</strong> High-pressure steam flows.<br>
+        3. <strong>Turbine:</strong> Steam spins the blades.<br>
+        4. <strong>Generator:</strong> Motion turns into Electricity.
+    </div>
+
+    <!-- Dashboard -->
+    <div id="dashboard">
+        <div class="control-panel">
+            <label><strong>1. Coal Feed Rate</strong></label>
+            <input type="range" id="coal-slider" min="0" max="100" value="0">
+            <div style="display: flex; justify-content: space-between; font-size: 0.8rem;">
+                <span>Off</span>
+                <span>Max Burn</span>
+            </div>
+        </div>
+
+        <div class="stats-panel">
+            <div class="stat-box" style="border-color: #e74c3c;">
+                <span class="stat-label">Furnace Temp</span>
+                <span id="temp-display" class="stat-value">25 °C</span>
+            </div>
+            <div class="stat-box" style="border-color: #f1c40f;">
+                <span class="stat-label">Steam Pressure</span>
+                <span id="pressure-display" class="stat-value">0 PSI</span>
+            </div>
+            <div class="stat-box" style="border-color: #2ecc71;">
+                <span class="stat-label">Grid Output</span>
+                <span id="output-display" class="stat-value">0 MW</span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- SCENE SETUP ---
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x111111);
+        scene.fog = new THREE.FogExp2(0x111111, 0.015);
+
+        const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.set(30, 20, 30);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.shadowMap.enabled = true;
+        document.body.appendChild(renderer.domElement);
+
+        const controls = new THREE.OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.target.set(0, 5, 0);
+
+        // --- LIGHTING ---
+        const ambientLight = new THREE.AmbientLight(0x404040);
+        scene.add(ambientLight);
+
+        const sunLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        sunLight.position.set(20, 50, 20);
+        sunLight.castShadow = true;
+        sunLight.shadow.mapSize.width = 1024;
+        sunLight.shadow.mapSize.height = 1024;
+        scene.add(sunLight);
+
+        // Furnace Glow Light
+        const furnaceLight = new THREE.PointLight(0xff4500, 0, 20);
+        furnaceLight.position.set(-10, 5, 0);
+        scene.add(furnaceLight);
+
+        // --- OBJECTS ---
+        const plantGroup = new THREE.Group();
+        scene.add(plantGroup);
+
+        // 1. Floor
+        const floorGeo = new THREE.PlaneGeometry(60, 40);
+        const floorMat = new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 0.8 });
+        const floor = new THREE.Mesh(floorGeo, floorMat);
+        floor.rotation.x = -Math.PI / 2;
+        floor.receiveShadow = true;
+        plantGroup.add(floor);
+
+        // 2. Boiler (Stage 1)
+        const boilerGeo = new THREE.BoxGeometry(8, 10, 8);
+        const boilerMat = new THREE.MeshStandardMaterial({ color: 0x555555, roughness: 0.7 });
+        const boiler = new THREE.Mesh(boilerGeo, boilerMat);
+        boiler.position.set(-10, 5, 0);
+        boiler.castShadow = true;
+        plantGroup.add(boiler);
+
+        // Boiler Window (to see fire)
+        const windowGeo = new THREE.PlaneGeometry(4, 4);
+        const windowMat = new THREE.MeshBasicMaterial({ color: 0x000000 });
+        const windowMesh = new THREE.Mesh(windowGeo, windowMat);
+        windowMesh.position.set(0, 0, 4.1); // Front of boiler
+        boiler.add(windowMesh);
+
+        // Chimney
+        const chimneyGeo = new THREE.CylinderGeometry(1.5, 2, 12, 16);
+        const chimney = new THREE.Mesh(chimneyGeo, boilerMat);
+        chimney.position.set(0, 8, 0);
+        boiler.add(chimney);
+
+        // 3. Pipes (Stage 2)
+        const pipeMat = new THREE.MeshStandardMaterial({ color: 0xaaaaaa, metalness: 0.6 });
+        const pipe1 = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 10), pipeMat);
+        pipe1.rotation.z = Math.PI / 2;
+        pipe1.position.set(-4, 9, 0); // Connecting boiler to turbine area
+        plantGroup.add(pipe1);
+
+        // 4. Turbine (Stage 3)
+        const turbineGroup = new THREE.Group();
+        plantGroup.add(turbineGroup);
+        turbineGroup.position.set(5, 5, 0);
+
+        // Turbine Casing
+        const turbineCaseGeo = new THREE.CylinderGeometry(3, 3, 8, 16);
+        const turbineCase = new THREE.Mesh(turbineCaseGeo, new THREE.MeshStandardMaterial({ color: 0x3498db }));
+        turbineCase.rotation.z = Math.PI / 2;
+        turbineCase.castShadow = true;
+        turbineGroup.add(turbineCase);
+
+        // Exposed Blades (Visual only)
+        const bladesGroup = new THREE.Group();
+        turbineGroup.add(bladesGroup);
+        // Create simple blades
+        for(let i=0; i<8; i++) {
+            const blade = new THREE.Mesh(new THREE.BoxGeometry(0.5, 4, 1), new THREE.MeshStandardMaterial({color: 0xcccccc}));
+            blade.rotation.x = (i / 8) * Math.PI * 2;
+            bladesGroup.add(blade);
+        }
+        bladesGroup.position.x = 0; // Center of turbine
+        // Hide blades inside casing partially? Let's put them on the end for visualization
+        bladesGroup.position.x = 4.2; 
+        
+        // Shaft connecting Turbine to Generator
+        const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.4, 6), new THREE.MeshStandardMaterial({color: 0x333333}));
+        shaft.rotation.z = Math.PI / 2;
+        shaft.position.x = 6;
+        turbineGroup.add(shaft);
+
+        // 5. Generator (Stage 4)
+        const genGeo = new THREE.BoxGeometry(6, 6, 6);
+        const genMat = new THREE.MeshStandardMaterial({ color: 0xf1c40f }); // Yellow generator
+        const generator = new THREE.Mesh(genGeo, genMat);
+        generator.position.set(12, 3, 0);
+        generator.castShadow = true;
+        plantGroup.add(generator);
+
+        // 6. Transmission Lines
+        const pylonGeo = new THREE.CylinderGeometry(0.2, 0.5, 15);
+        const pylonMat = new THREE.MeshStandardMaterial({ color: 0x777777 });
+        
+        const pylon1 = new THREE.Mesh(pylonGeo, pylonMat);
+        pylon1.position.set(20, 7.5, -5);
+        plantGroup.add(pylon1);
+
+        const pylon2 = new THREE.Mesh(pylonGeo, pylonMat);
+        pylon2.position.set(35, 7.5, -5);
+        plantGroup.add(pylon2);
+
+        // Wires
+        const wireGeo = new THREE.CylinderGeometry(0.05, 0.05, 15);
+        const wireMat = new THREE.MeshBasicMaterial({ color: 0x000000 });
+        const wire = new THREE.Mesh(wireGeo, wireMat);
+        wire.rotation.z = Math.PI / 2;
+        wire.position.set(27.5, 14, -5);
+        plantGroup.add(wire);
+
+
+        // --- PARTICLE SYSTEMS ---
+
+        // A. Fire Particles (Inside Boiler)
+        const fireCount = 200;
+        const fireGeo = new THREE.BufferGeometry();
+        const firePos = new Float32Array(fireCount * 3);
+        const fireLife = new Float32Array(fireCount); // For animation
+        for(let i=0; i<fireCount; i++) {
+            firePos[i*3] = (Math.random() - 0.5) * 3;
+            firePos[i*3+1] = Math.random() * 3;
+            firePos[i*3+2] = (Math.random() - 0.5) * 3 + 4.1; // Place near window
+            fireLife[i] = Math.random();
+        }
+        fireGeo.setAttribute('position', new THREE.BufferAttribute(firePos, 3));
+        const fireMaterial = new THREE.PointsMaterial({ color: 0xff5500, size: 0.3, transparent: true, opacity: 0 });
+        const fireSystem = new THREE.Points(fireGeo, fireMaterial);
+        boiler.add(fireSystem);
+
+        // B. Steam Particles (Chimney)
+        const smokeCount = 100;
+        const smokeGeo = new THREE.BufferGeometry();
+        const smokePos = new Float32Array(smokeCount * 3);
+        for(let i=0; i<smokeCount; i++) {
+            smokePos[i*3] = (Math.random() - 0.5) * 2;
+            smokePos[i*3+1] = Math.random() * 5 + 6; // Above chimney
+            smokePos[i*3+2] = (Math.random() - 0.5) * 2;
+        }
+        smokeGeo.setAttribute('position', new THREE.BufferAttribute(smokePos, 3));
+        const smokeMaterial = new THREE.PointsMaterial({ color: 0xdddddd, size: 0.8, transparent: true, opacity: 0 });
+        const smokeSystem = new THREE.Points(smokeGeo, smokeMaterial);
+        boiler.add(smokeSystem);
+
+        // C. Electricity Sparkles (Along Wire)
+        const elecCount = 50;
+        const elecGeo = new THREE.BufferGeometry();
+        const elecPos = new Float32Array(elecCount * 3);
+        for(let i=0; i<elecCount; i++) {
+            elecPos[i*3] = (Math.random() - 0.5) * 15 + 27.5; // Spread along wire X
+            elecPos[i*3+1] = 14;
+            elecPos[i*3+2] = -5;
+        }
+        elecGeo.setAttribute('position', new THREE.BufferAttribute(elecPos, 3));
+        const elecMaterial = new THREE.PointsMaterial({ color: 0x00ffff, size: 0.4, transparent: true, opacity: 0 });
+        const elecSystem = new THREE.Points(elecGeo, elecMaterial);
+        plantGroup.add(elecSystem);
+
+
+        // --- LOGIC & ANIMATION ---
+
+        let sim = {
+            coalRate: 0, // 0-100
+            temp: 25,
+            pressure: 0,
+            rpm: 0,
+            output: 0
+        };
+
+        const slider = document.getElementById('coal-slider');
+        const tempDisp = document.getElementById('temp-display');
+        const pressDisp = document.getElementById('pressure-display');
+        const outDisp = document.getElementById('output-display');
+
+        slider.addEventListener('input', (e) => {
+            sim.coalRate = parseInt(e.target.value);
+        });
+
+        // HTML Labels Logic
+        const labels = [
+            { text: "1. Boiler (Combustion)", pos: new THREE.Vector3(-10, 12, 0) },
+            { text: "2. Steam Pipes", pos: new THREE.Vector3(-2, 10, 0) },
+            { text: "3. Turbine", pos: new THREE.Vector3(5, 10, 0) },
+            { text: "4. Generator", pos: new THREE.Vector3(12, 8, 0) },
+            { text: "Grid", pos: new THREE.Vector3(35, 15, -5) }
+        ];
+
+        const labelContainer = document.getElementById('labels-container');
+        labels.forEach(l => {
+            const div = document.createElement('div');
+            div.className = 'annotation';
+            div.innerHTML = `<span class="step-number">${l.text.charAt(0)}</span>${l.text.substring(2)}`;
+            if(l.text === "Grid") div.innerHTML = `Transmission`;
+            labelContainer.appendChild(div);
+            l.div = div;
+        });
+
+        function updateLabels() {
+            labels.forEach(l => {
+                const vector = l.pos.clone();
+                vector.project(camera);
+                const x = (vector.x * .5 + .5) * window.innerWidth;
+                const y = (-(vector.y * .5) + .5) * window.innerHeight;
+
+                if (vector.z < 1) { // Only show if in front of camera
+                    l.div.style.left = `${x}px`;
+                    l.div.style.top = `${y}px`;
+                    l.div.style.opacity = 1;
+                } else {
+                    l.div.style.opacity = 0;
+                }
+            });
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            // --- Physics Loop ---
+            
+            // 1. Temperature Calculation
+            const targetTemp = 25 + (sim.coalRate * 15); // Max ~1500 C
+            sim.temp += (targetTemp - sim.temp) * 0.05;
+
+            // 2. Pressure Calculation (Needs temp > 100)
+            let targetPressure = 0;
+            if(sim.temp > 100) {
+                targetPressure = (sim.temp - 100) * 2; // Arbitrary PSI
+            }
+            sim.pressure += (targetPressure - sim.pressure) * 0.05;
+
+            // 3. RPM Calculation
+            const targetRPM = sim.pressure * 5; 
+            sim.rpm += (targetRPM - sim.rpm) * 0.02; // Momentum
+
+            // 4. Output Calculation
+            sim.output = Math.floor(sim.rpm / 20); // MW
+
+            // --- Visual Updates ---
+
+            // Update DOM
+            tempDisp.innerText = Math.floor(sim.temp) + " °C";
+            pressDisp.innerText = Math.floor(sim.pressure) + " PSI";
+            outDisp.innerText = Math.floor(sim.output) + " MW";
+
+            // Fire Animation
+            const fireAttr = fireGeo.attributes.position;
+            const burnIntensity = sim.temp / 1500;
+            fireMaterial.opacity = burnIntensity;
+            furnaceLight.intensity = burnIntensity * 2;
+
+            for(let i=0; i<fireCount; i++) {
+                // Rise up
+                fireAttr.array[i*3+1] += 0.1;
+                // Reset
+                if(fireAttr.array[i*3+1] > 4) {
+                    fireAttr.array[i*3+1] = -4;
+                }
+            }
+            fireAttr.needsUpdate = true;
+
+            // Smoke Animation (Chimney)
+            const smokeAttr = smokeGeo.attributes.position;
+            smokeMaterial.opacity = Math.max(0, (sim.coalRate / 200)); // Only smoke if burning
+            for(let i=0; i<smokeCount; i++) {
+                smokeAttr.array[i*3+1] += 0.05 + (sim.coalRate * 0.001); // Faster smoke if more coal
+                if(smokeAttr.array[i*3+1] > 14) smokeAttr.array[i*3+1] = 6;
+            }
+            smokeAttr.needsUpdate = true;
+
+            // Turbine Rotation
+            const rotSpeed = sim.rpm * 0.001;
+            bladesGroup.rotation.x += rotSpeed;
+            shaft.rotation.x += rotSpeed;
+
+            // Electricity Animation
+            const elecAttr = elecGeo.attributes.position;
+            elecMaterial.opacity = sim.output > 10 ? 1 : 0;
+            for(let i=0; i<elecCount; i++) {
+                elecAttr.array[i*3] += 0.5; // Flow speed
+                if(elecAttr.array[i*3] > 35) elecAttr.array[i*3] = 20; // Reset loop
+            }
+            elecAttr.needsUpdate = true;
+
+            // Colors
+            if(sim.temp > 800) boilerMat.emissive.setHex(0x331100);
+            else boilerMat.emissive.setHex(0x000000);
+
+
+            controls.update();
+            updateLabels();
+            renderer.render(scene, camera);
+        }
+
+        // Handle Resize
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        animate();
+
+    </script>
+</body>
+</html>
