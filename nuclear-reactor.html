@@ -1,0 +1,558 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nuclear Reactor Simulator</title>
+    <style>
+        :root {
+            --bg-color: #121212;
+            --panel-bg: #1e1e1e;
+            --text-color: #e0e0e0;
+            --accent-safe: #2ecc71;
+            --accent-warn: #f1c40f;
+            --accent-danger: #e74c3c;
+            --water-color: rgba(52, 152, 219, 0.4);
+            --fuel-color: #c0392b;
+            --rod-color: #95a5a6;
+        }
+
+        * {
+            box-sizing: border-box;
+            user-select: none; /* Prevent selection while dragging */
+        }
+
+        body {
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+        }
+
+        h1 {
+            margin: 0 0 20px 0;
+            font-size: 1.8rem;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            text-align: center;
+            color: #fff;
+        }
+
+        /* Main Grid Layout */
+        .dashboard {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 20px;
+            width: 100%;
+            max-width: 900px;
+        }
+
+        @media (min-width: 768px) {
+            .dashboard {
+                grid-template-columns: 1fr 1fr;
+            }
+        }
+
+        .panel {
+            background: var(--panel-bg);
+            padding: 25px;
+            border-radius: 12px;
+            border: 1px solid #333;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+        }
+
+        h3 {
+            margin-top: 0;
+            border-bottom: 2px solid #333;
+            padding-bottom: 10px;
+            margin-bottom: 20px;
+            text-align: center;
+            font-size: 1.2rem;
+        }
+
+        /* Reactor Visuals */
+        #core-view {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 320px;
+        }
+
+        #core-container {
+            position: relative;
+            width: 200px;
+            height: 300px;
+            background: #2c3e50;
+            border-radius: 8px;
+            overflow: hidden;
+            border: 4px solid #555;
+            box-shadow: inset 0 0 20px rgba(0,0,0,0.5);
+        }
+
+        #water {
+            position: absolute;
+            bottom: 0;
+            width: 100%;
+            height: 100%;
+            background: var(--water-color);
+            z-index: 10;
+            transition: background 0.5s;
+            pointer-events: none;
+        }
+
+        .fuel-rod {
+            position: absolute;
+            bottom: 20px;
+            width: 24px;
+            height: 220px;
+            background: var(--fuel-color);
+            border-radius: 4px;
+            z-index: 5;
+            box-shadow: 0 0 10px rgba(231, 76, 60, 0.5);
+        }
+
+        /* Glowing effect for fuel */
+        @keyframes pulse-heat {
+            0% { box-shadow: 0 0 5px rgba(231, 76, 60, 0.3); }
+            50% { box-shadow: 0 0 15px rgba(231, 76, 60, 0.8); }
+            100% { box-shadow: 0 0 5px rgba(231, 76, 60, 0.3); }
+        }
+        .fuel-rod.active {
+            animation: pulse-heat 2s infinite;
+        }
+
+        .control-rod {
+            position: absolute;
+            top: 0;
+            width: 28px; /* Slightly wider than fuel to cover it */
+            height: 220px;
+            background: linear-gradient(90deg, #7f8c8d, #95a5a6, #7f8c8d);
+            border-radius: 2px;
+            z-index: 15;
+            transition: top 0.1s linear; /* Smooth movement */
+            box-shadow: 0 2px 4px rgba(0,0,0,0.5);
+            border-bottom: 4px solid #555;
+        }
+
+        /* Bubbles */
+        .bubble {
+            position: absolute;
+            background: rgba(255,255,255,0.3);
+            border-radius: 50%;
+            pointer-events: none;
+            z-index: 12;
+            animation: rise 2s infinite linear;
+        }
+
+        @keyframes rise {
+            from { bottom: 0; opacity: 1; transform: translateX(0); }
+            to { bottom: 100%; opacity: 0; transform: translateX(5px); }
+        }
+
+        /* Controls & Gauges */
+        .control-group {
+            margin-bottom: 25px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            font-size: 0.9rem;
+            color: #aaa;
+        }
+
+        .value-display {
+            font-family: 'Courier New', monospace;
+            font-size: 1.1rem;
+            color: #fff;
+            float: right;
+        }
+
+        /* Range Slider Styling */
+        input[type=range] {
+            -webkit-appearance: none;
+            width: 100%;
+            background: transparent;
+            margin: 10px 0;
+        }
+
+        input[type=range]:focus {
+            outline: none;
+        }
+
+        input[type=range]::-webkit-slider-runnable-track {
+            width: 100%;
+            height: 8px;
+            cursor: pointer;
+            background: #444;
+            border-radius: 4px;
+        }
+
+        input[type=range]::-webkit-slider-thumb {
+            height: 24px;
+            width: 24px;
+            border-radius: 50%;
+            background: #3498db;
+            cursor: pointer;
+            -webkit-appearance: none;
+            margin-top: -8px;
+            box-shadow: 0 0 5px rgba(0,0,0,0.5);
+        }
+        
+        /* Progress Bar Styling */
+        .bar-container {
+            width: 100%;
+            height: 24px;
+            background-color: #333;
+            border-radius: 12px;
+            overflow: hidden;
+            position: relative;
+            box-shadow: inset 0 2px 4px rgba(0,0,0,0.5);
+        }
+
+        .bar-fill {
+            height: 100%;
+            width: 0%;
+            transition: width 0.2s, background-color 0.5s;
+            background-color: var(--accent-safe);
+        }
+
+        /* Buttons */
+        .scram-btn {
+            width: 100%;
+            padding: 18px;
+            background: #8e2b22;
+            color: white;
+            border: none;
+            font-weight: bold;
+            cursor: pointer;
+            font-size: 1.1rem;
+            text-transform: uppercase;
+            border-radius: 8px;
+            letter-spacing: 1px;
+            box-shadow: 0 4px 0 #581b15;
+            transition: all 0.1s;
+            margin-top: 10px;
+        }
+
+        .scram-btn:active {
+            transform: translateY(4px);
+            box-shadow: 0 0 0 #581b15;
+        }
+
+        .scram-btn:hover {
+            background: #a93226;
+        }
+
+        /* Status Box */
+        .status-box {
+            grid-column: 1 / -1;
+            text-align: center;
+            padding: 15px;
+            border-radius: 8px;
+            font-weight: bold;
+            font-size: 1.1rem;
+            letter-spacing: 1px;
+            background: #252525;
+            border: 1px solid #444;
+            transition: all 0.3s;
+        }
+
+        .status-normal { color: var(--accent-safe); border-color: var(--accent-safe); background: rgba(46, 204, 113, 0.1); }
+        .status-warning { color: var(--accent-warn); border-color: var(--accent-warn); background: rgba(241, 196, 15, 0.1); }
+        .status-danger { color: var(--accent-danger); border-color: var(--accent-danger); background: rgba(231, 76, 60, 0.1); }
+        .status-meltdown { 
+            background: #c0392b; 
+            color: white; 
+            border-color: #fff;
+            animation: flash 0.5s infinite; 
+        }
+
+        @keyframes flash { 0% { opacity: 1; } 50% { opacity: 0.7; } 100% { opacity: 1; } }
+
+        /* Mobile Adjustments */
+        @media (max-width: 600px) {
+            h1 { font-size: 1.4rem; }
+            .panel { padding: 15px; }
+            #core-container { width: 160px; height: 260px; }
+            .fuel-rod { width: 20px; height: 180px; left: 0; } 
+            .control-rod { width: 24px; height: 180px; }
+            .scram-btn { padding: 15px; font-size: 1rem; }
+        }
+
+    </style>
+</head>
+<body>
+
+    <h1>PWR Reactor Simulator</h1>
+    
+    <div class="dashboard">
+        <div id="system-status" class="status-box status-normal">SYSTEM STATUS: STABLE</div>
+
+        <!-- Left Panel: Core Visualization -->
+        <div class="panel">
+            <h3>Reactor Core View</h3>
+            <div id="core-view">
+                <div id="core-container">
+                    <div id="water"></div>
+                    
+                    <!-- Fuel Rods (Static X position) -->
+                    <div class="fuel-rod" style="left: 30px;"></div>
+                    <div class="fuel-rod" style="left: 80px;"></div>
+                    <div class="fuel-rod" style="left: 130px;"></div>
+                    
+                    <!-- Control Rods (Dynamic Y position) -->
+                    <div class="control-rod" id="rod1" style="left: 28px;"></div>
+                    <div class="control-rod" id="rod2" style="left: 78px;"></div>
+                    <div class="control-rod" id="rod3" style="left: 128px;"></div>
+                </div>
+            </div>
+            <div style="text-align: center; margin-top: 10px; font-size: 0.8rem; color: #777;">
+                Visual representation of control rods inserting into fuel assembly.
+            </div>
+        </div>
+
+        <!-- Right Panel: Controls -->
+        <div class="panel">
+            <h3>Control Room</h3>
+            
+            <div class="control-group">
+                <label>Control Rod Position <span id="rod-text" class="value-display">100% (Safe)</span></label>
+                <input type="range" id="rod-slider" min="0" max="100" value="100">
+                <div style="display: flex; justify-content: space-between; font-size: 0.8rem; color: #666;">
+                    <span>0% (Full Power)</span>
+                    <span>100% (Shutdown)</span>
+                </div>
+            </div>
+
+            <div class="control-group">
+                <label>Core Temperature <span id="temp-text" class="value-display">300°C</span></label>
+                <div class="bar-container">
+                    <div id="temp-bar" class="bar-fill" style="width: 15%;"></div>
+                </div>
+            </div>
+
+            <div class="control-group">
+                <label>Power Output <span id="power-text" class="value-display">0 MW</span></label>
+                <div class="bar-container">
+                    <div id="power-bar" class="bar-fill" style="width: 0%; background-color: #3498db;"></div>
+                </div>
+            </div>
+
+            <div class="control-group">
+                 <label>Coolant Pump Status</label>
+                 <div style="color: #2ecc71; font-weight: bold; font-family: monospace;">ACTIVE - 100% FLOW</div>
+            </div>
+
+            <button class="scram-btn" onclick="scram()">SCRAM (Emergency Stop)</button>
+        </div>
+    </div>
+
+    <script>
+        // --- State Variables ---
+        const CONSTANTS = {
+            MAX_TEMP: 2500,
+            MELTDOWN_TEMP: 1800,
+            WARNING_TEMP: 1200,
+            OPTIMAL_TEMP: 800,
+            BASE_TEMP: 25,     // Room temp
+            COOLING_BASE: 8,   // Base cooling rate
+            HEATING_MULTIPLIER: 45 // How fast it heats up at 100% reaction
+        };
+
+        let state = {
+            temperature: CONSTANTS.BASE_TEMP,
+            rodInsertion: 100, // 0 = out (active), 100 = in (safe)
+            powerOutput: 0,
+            isMeltdown: false
+        };
+
+        // --- DOM Elements ---
+        const ui = {
+            slider: document.getElementById('rod-slider'),
+            rodText: document.getElementById('rod-text'),
+            tempBar: document.getElementById('temp-bar'),
+            tempText: document.getElementById('temp-text'),
+            powerBar: document.getElementById('power-bar'),
+            powerText: document.getElementById('power-text'),
+            statusBox: document.getElementById('system-status'),
+            rods: document.querySelectorAll('.control-rod'),
+            fuelRods: document.querySelectorAll('.fuel-rod'),
+            water: document.getElementById('water'),
+            core: document.getElementById('core-container')
+        };
+
+        // --- Initialization ---
+        ui.slider.addEventListener('input', (e) => {
+            state.rodInsertion = parseInt(e.target.value);
+            updateRodVisuals();
+        });
+
+        // --- Core Logic ---
+        function updateRodVisuals() {
+            // Text update
+            let status = "";
+            if (state.rodInsertion === 100) status = "(Safe)";
+            else if (state.rodInsertion === 0) status = "(Max)";
+            ui.rodText.innerText = `${state.rodInsertion}% ${status}`;
+
+            // Visual update (move rods up/down)
+            // Rod height is approx 220px. 
+            // 100% insertion = top: 0px. 
+            // 0% insertion = top: -220px.
+            const offset = -220 * (1 - state.rodInsertion / 100);
+            
+            ui.rods.forEach(rod => {
+                rod.style.top = `${offset}px`;
+            });
+        }
+
+        function scram() {
+            if (state.isMeltdown) return; // Too late
+            state.rodInsertion = 100;
+            ui.slider.value = 100;
+            updateRodVisuals();
+            ui.statusBox.innerText = "SCRAM INITIATED - RODS DROPPED";
+            ui.statusBox.className = "status-box status-warning";
+        }
+
+        function createBubble() {
+            if (state.temperature > 100 && !state.isMeltdown && document.hidden === false) {
+                const bubble = document.createElement('div');
+                bubble.className = 'bubble';
+                // Randomize X position within core width (approx 200px)
+                bubble.style.left = Math.random() * 160 + 10 + 'px';
+                // Size
+                const size = Math.random() * 10 + 5;
+                bubble.style.width = size + 'px';
+                bubble.style.height = size + 'px';
+                
+                ui.core.appendChild(bubble);
+                
+                // Cleanup after animation
+                setTimeout(() => {
+                    if(bubble.parentNode) bubble.parentNode.removeChild(bubble);
+                }, 2000);
+            }
+        }
+
+        function triggerMeltdown() {
+            state.isMeltdown = true;
+            ui.statusBox.innerText = "CRITICAL FAILURE: CORE MELTDOWN IMMINENT";
+            ui.statusBox.className = "status-box status-meltdown";
+            ui.water.style.background = "rgba(231, 76, 60, 0.8)"; // Turn water red
+            
+            // Disable controls
+            ui.slider.disabled = true;
+        }
+
+        function updatePhysics() {
+            if (state.isMeltdown) return;
+
+            // 1. Calculate Reaction Rate (0.0 to 1.0)
+            // Inverse of rod insertion. 100% rods = 0 rate.
+            const reactionRate = (100 - state.rodInsertion) / 100;
+
+            // 2. Heat Generation
+            // Heat is generated based on reaction rate
+            const heatAdded = reactionRate * CONSTANTS.HEATING_MULTIPLIER;
+
+            // 3. Cooling
+            // Cooling is proportional to temperature difference (Newton's Law of Cooling simplified)
+            // Plus constant active cooling from pumps
+            const tempDiff = state.temperature - CONSTANTS.BASE_TEMP;
+            const coolingRate = CONSTANTS.COOLING_BASE + (tempDiff * 0.005);
+
+            // Apply changes
+            state.temperature += (heatAdded - coolingRate);
+
+            // Clamp minimum temp
+            if (state.temperature < CONSTANTS.BASE_TEMP) state.temperature = CONSTANTS.BASE_TEMP;
+
+            // 4. Power Output Calculation
+            // Power is generated only if water is boiling (>100C)
+            // Efficiency curve: Drops off if temp gets too high (simulating pressure limits/safety valves)
+            if (state.temperature > 100) {
+                // Simple linear model for this sim
+                let efficiency = 1.0;
+                if (state.temperature > CONSTANTS.WARNING_TEMP) efficiency = 0.5; // Losing efficiency at danger levels
+                
+                // Power is proportional to Temp * Reaction Rate
+                const rawPower = (state.temperature / CONSTANTS.OPTIMAL_TEMP) * 1000 * reactionRate * efficiency;
+                state.powerOutput = Math.max(0, rawPower); // No negative power
+            } else {
+                state.powerOutput = 0;
+            }
+
+            // 5. Meltdown Check
+            if (state.temperature >= CONSTANTS.MELTDOWN_TEMP) {
+                triggerMeltdown();
+            }
+        }
+
+        function updateUI() {
+            // Temperature UI
+            ui.tempText.innerText = Math.floor(state.temperature) + "°C";
+            const tempPct = Math.min((state.temperature / CONSTANTS.MELTDOWN_TEMP) * 100, 100);
+            ui.tempBar.style.width = tempPct + "%";
+
+            // Colorize Temp Bar
+            if (state.temperature < CONSTANTS.OPTIMAL_TEMP + 200) {
+                ui.tempBar.style.backgroundColor = "#2ecc71"; // Green
+                if (!state.isMeltdown) {
+                     // Check if simple "generating" or "idle"
+                     if (state.powerOutput > 50) {
+                         ui.statusBox.innerText = "SYSTEM NORMAL: GENERATING POWER";
+                         ui.statusBox.className = "status-box status-normal";
+                     } else {
+                         ui.statusBox.innerText = "SYSTEM IDLE";
+                         ui.statusBox.className = "status-box status-normal";
+                     }
+                }
+            } else if (state.temperature < CONSTANTS.WARNING_TEMP) {
+                ui.tempBar.style.backgroundColor = "#f1c40f"; // Yellow
+            } else {
+                ui.tempBar.style.backgroundColor = "#e74c3c"; // Red
+                if (!state.isMeltdown) {
+                    ui.statusBox.innerText = "WARNING: CORE TEMP CRITICAL";
+                    ui.statusBox.className = "status-box status-danger";
+                }
+            }
+
+            // Power UI
+            ui.powerText.innerText = Math.floor(state.powerOutput) + " MW";
+            const powerPct = Math.min((state.powerOutput / 1500) * 100, 100); // 1500 MW max scale
+            ui.powerBar.style.width = powerPct + "%";
+
+            // Bubble Effects
+            // Chance to create bubble increases with temp
+            if (Math.random() < (state.temperature / 3000)) {
+                createBubble();
+            }
+
+            // Fuel Rod Glow
+            if (state.temperature > 600) {
+                ui.fuelRods.forEach(r => r.classList.add('active'));
+            } else {
+                ui.fuelRods.forEach(r => r.classList.remove('active'));
+            }
+        }
+
+        // --- Game Loop ---
+        setInterval(() => {
+            updatePhysics();
+            updateUI();
+        }, 100); // 10 ticks per second
+
+        // Initial setup
+        updateRodVisuals();
+
+    </script>
+</body>
+</html>
